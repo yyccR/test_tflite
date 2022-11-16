@@ -9,9 +9,12 @@
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model.h"
 //#include "tensorflow/lite/delegates/gpu/delegate.h"
-#include "tensorflow/lite/optional_debug_tools.h"
+//#include "tensorflow/lite/delegates/gpu/metal/metal_device.h"
+//#include "tensorflow/lite/delegates/gpu/metal_delegate.h"
+//#include "tensorflow/lite/delegates/gpu/metal_delegate_internal.h"
+////#include "tensorflow/lite/optional_debug_tools.h"
 
-#include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
+//#include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 
 // This is an example that is minimal to read a model
 // from disk and perform inference. There is no data being loaded
@@ -178,7 +181,6 @@ void draw_coco_bboxes(const cv::Mat& bgr, const std::vector<BoxInfo>& bboxes)
                                          "toaster", "sink", "refrigerator", "book", "clock", "vase",
                                          "scissors", "teddy bear", "hair drier", "toothbrush"
     };
-
     cv::Mat image = bgr;
     int src_w = image.cols;
     int src_h = image.rows;
@@ -233,10 +235,8 @@ int main() {
     tflite::ops::builtin::BuiltinOpResolver resolver;
     tflite::InterpreterBuilder(*model, resolver)(&interpreter);
 
-//    if(true){
-//        TfLiteDelegate* delegate = TfLiteGpuDelegateV2Create(nullptr);
-//        std::cout << interpreter->ModifyGraphWithDelegate(delegate) << std::endl;
-//    }
+//    TfLiteDelegate* delegate = TFLGpuDelegateCreate(nullptr);
+//    std::cout << interpreter->ModifyGraphWithDelegate(delegate) << std::endl;
 
 //    TFLITE_MINIMAL_CHECK(interpreter != nullptr);
 
@@ -246,24 +246,34 @@ int main() {
 //    tflite::PrintInterpreterState(interpreter.get());
     interpreter->AllocateTensors();
 
+
+
     // Fill input buffers
     // TODO(user): Insert code to fill input tensors.
     // Note: The buffer of the input tensor with index `i` of type T can
     // be accessed with `T* input = interpreter->typed_input_tensor<T>(i);`
 //    float* input = interpreter->typed_input_tensor<float>(interpreter->inputs()[0]);
     float* input = interpreter->typed_input_tensor<float>(interpreter->inputs()[0]);
-    std::string imfile = "/Users/yang/CLionProjects/test_tflite/data/images/img.png";
+//    std::string imfile = "/Users/yang/CLionProjects/test_tflite/data/images/img.jpg";
+    std::string imfile = "/Users/yang/Downloads/JPEGImages/Cats_Test0.jpg";
     cv::Mat im = cv::imread(imfile, cv::IMREAD_COLOR);
     cv::Mat im2;
     cv::resize(im, im2, cv::Size(320, 320));
     im2.convertTo(im2, CV_32F, 1.0/255);
     float* imPointer = im2.ptr<float>(0);
-    memcpy(input, imPointer, im2.rows*im2.cols*im2.dims*sizeof(float));
+
+//    interpreter->typed_input_tensor<float>(0) = imPointer;
+    std::cout << im2.rows << " " << im2.cols << " " << im2.channels() << std::endl;
+    memcpy(input, imPointer, im2.rows*im2.cols*im2.channels()*sizeof(int32_t));
 
     TfLiteIntArray* f = interpreter->input_tensor(0)->dims;
     for(int i =0; i<f->size;i++){
         std::cout << "input[" <<i<<"]" << f->data[i] << std::endl;
     }
+
+
+    float w_scale = (float)im.cols / (float)320;
+    float h_scale = (float)im.rows / (float)320;
 //    img.convertTo(img, CV_32F, 255.f/input_std);
 //    cv::subtract(img, cv::Scalar(input_mean/input_std), img);
 //    float* in = img.ptr<float>(0);
@@ -316,16 +326,16 @@ int main() {
                 }
             }
 
-            float x = *(output+i*85+0)* 320.0f;
-            float y = *(output+i*85+1)* 320.0f;
-            float w = *(output+i*85+2)* 320.0f;
-            float h = *(output+i*85+3)* 320.0f;
+            float x = *(output+i*85+0)* 320.0f * w_scale;
+            float y = *(output+i*85+1)* 320.0f * h_scale;
+            float w = *(output+i*85+2)* 320.0f * w_scale;
+            float h = *(output+i*85+3)* 320.0f * h_scale;
 
             boxes.push_back(BoxInfo{
                     (float)std::max(0.0, x-w/2.0),
                     (float)std::max(0.0, y-h/2.0),
-                    (float)std::min(320.0, x+w/2.0),
-                    (float)std::min(320.0, y+h/2.0),
+                    (float)std::min((float)im.cols, (float)(x+w/2.0)),
+                    (float)std::min((float)im.rows, (float)(y+h/2.0)),
                     *(output+i*85+4),
                     cur_label
             });
@@ -347,7 +357,7 @@ int main() {
                   " socre: " << box.score <<
                   " label: " << box.label << std::endl;
     }
-    draw_coco_bboxes(im2, boxes);
+    draw_coco_bboxes(im, boxes);
     cv::waitKey(0);
 
 //    TfLiteIntArray* ff = interpreter->output_tensor(0)->dims;
