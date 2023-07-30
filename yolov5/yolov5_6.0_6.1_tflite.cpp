@@ -219,9 +219,9 @@ void draw_coco_bboxes(const cv::Mat& bgr, const std::vector<BoxInfo>& bboxes)
     cv::imshow("image", image);
 }
 
-int main() {
+void test_yolov5_60_61_tflite() {
 
-    std::string filename = "/Users/yang/CLionProjects/test_tflite/models/yolov5s-coco-320.tflite";
+    std::string filename = "/Users/yang/CLionProjects/test_tflite/yolov5/yolov5s-coco-320.tflite";
 //    const char[] filename = '/Users/yang/CLionProjects/test_tflite/models/yolov5s-coco-320.tflite';
 
     // Load model
@@ -372,5 +372,5 @@ int main() {
 //        std::cout << *(c+i) << std::endl;
 //    }
 
-    return 0;
+//    return 0;
 }
