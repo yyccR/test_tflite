@@ -12,7 +12,7 @@ std::unique_ptr<tflite::FlatBufferModel> whisper_model;
 std::unique_ptr<tflite::Interpreter> whisper_interpreter;
 
 void test_whisper_tflite() {
-    std::string filename = "/Users/yang/CLionProjects/test_tflite/whisper/whisper_tflite.cpp";
+    std::string filename = "/Users/yang/CLionProjects/test_tflite/whisper/whisper.tflite";
     whisper_model = tflite::FlatBufferModel::BuildFromFile(filename.c_str());
     std::cout << 0 << std::endl;
 }

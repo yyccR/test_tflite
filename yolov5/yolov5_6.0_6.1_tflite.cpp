@@ -255,7 +255,7 @@ void test_yolov5_60_61_tflite() {
 //    float* input = interpreter->typed_input_tensor<float>(interpreter->inputs()[0]);
     float* input = interpreter->typed_input_tensor<float>(interpreter->inputs()[0]);
 //    std::string imfile = "/Users/yang/CLionProjects/test_tflite/data/images/img.jpg";
-    std::string imfile = "/Users/yang/Downloads/JPEGImages/Cats_Test0.jpg";
+    std::string imfile = "/Users/yang/CLionProjects/test_tflite/data/images/img.jpg";
     cv::Mat im = cv::imread(imfile, cv::IMREAD_COLOR);
     cv::Mat im2;
     cv::resize(im, im2, cv::Size(320, 320));
