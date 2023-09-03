@@ -10,6 +10,7 @@ message("OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
 message("OpenCV_LIBS = ${OpenCV_LIBS}")
 
 include_directories(${CMAKE_CURRENT_LIST_DIR}/tflite-2.12.0/include)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/tflite-2.12.0/include/drwav)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/tflite-2.12.0/include/abseil-cpp-20220623.1)
 include_directories(${CMAKE_CURRENT_LIST_DIR}/tflite-2.12.0/include/flatbuffers-22.10.26/include)
 
