@@ -2,6 +2,8 @@
 #include <iostream>
 #include <fstream>
 #include <thread>
+#define DR_WAV_IMPLEMENTATION
+#include "dr_wav.h"
 #include "opencv2/core.hpp"
 #include "opencv2/opencv.hpp"
 #include "opencv2/imgproc.hpp"
@@ -9,6 +11,13 @@
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
 #include "tensorflow/lite/model.h"
+
+#define WHISPER_SAMPLE_RATE 16000
+#define WHISPER_N_FFT       400
+#define WHISPER_N_MEL       80
+#define WHISPER_HOP_LENGTH  160
+#define WHISPER_CHUNK_SIZE  30
+#define WHISPER_MEL_LEN     3000
 
 std::unique_ptr<tflite::FlatBufferModel> whisper_model;
 std::unique_ptr<tflite::Interpreter> whisper_interpreter;
@@ -47,10 +56,6 @@ struct whisper_vocab {
 
 };
 
-// whisper词汇表
-whisper_vocab g_vocab;
-
-
 struct whisper_filters {
     int32_t n_mel;
     int32_t n_fft;
@@ -65,6 +70,10 @@ struct whisper_mel {
     std::vector<float> data;
 };
 
+// 定义whisper词汇表,滤波器,mel
+whisper_vocab g_vocab;
+whisper_filters filters;
+whisper_mel mel;
 
 // Discrete Fourier Transform, 离散傅里叶变换
 void dft(const std::vector<float> & in, std::vector<float> & out) {
@@ -264,16 +273,19 @@ bool log_mel_spectrogram(
 
 void test_whisper_tflite() {
     std::string model_file = "/Users/yang/CLionProjects/test_tflite/whisper/whisper.tflite";
-    std::string vocab_file = "/Users/yang/CLionProjects/test_tflite/yolov5/filters_vocab_gen.bin";
+    std::string vocab_file = "/Users/yang/CLionProjects/test_tflite/whisper/filters_vocab_gen.bin";
+    std::string wav_file = "/Users/yang/CLionProjects/test_tflite/data/audio/test.wav";
 
+    // 加载词汇表
     std::ifstream file(vocab_file, std::ios::binary);
     if (!file.is_open()) {
         std::cerr << "Failed to open file: " << vocab_file << std::endl;
         return;
+    } else {
+        std::cout << "read vocab/mel_filters file: " << vocab_file << std::endl;
     }
     uint32_t magic = 0;
     file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    std::cout << "magic num: " << magic << std::endl;
 
     // 检查魔数
     if (magic != 0x5553454e) {
@@ -282,7 +294,6 @@ void test_whisper_tflite() {
     }
 
     // 读取 mel filters 数据
-    whisper_filters filters;
     file.read(reinterpret_cast<char*>(&filters.n_mel), sizeof(filters.n_mel));
     file.read(reinterpret_cast<char*>(&filters.n_fft), sizeof(filters.n_fft));
     filters.data.resize(filters.n_mel * filters.n_fft);
@@ -300,7 +311,7 @@ void test_whisper_tflite() {
         file.read(reinterpret_cast<char*>(&len), sizeof(len));
         std::string word(len, '\0');
         file.read(&word[0], len);
-        std::cout << i << ": " << word << std::endl;
+//        std::cout << i << ": " << word << std::endl;
         g_vocab.id_to_token[i] = word;
     }
 
@@ -334,19 +345,72 @@ void test_whisper_tflite() {
         // printf("%s: g_vocab[%d] = '%s'\n", __func__, i, word.c_str());
     }
 
-    // 关闭文件
+    // 关闭vocab文件
     file.close();
 
     // 加载模型
     whisper_model = tflite::FlatBufferModel::BuildFromFile(model_file.c_str());
-
     tflite::ops::builtin::BuiltinOpResolver resolver;
     tflite::InterpreterBuilder(*whisper_model, resolver)(&whisper_interpreter);
     TFLITE_MINIMAL_CHECK(whisper_interpreter != nullptr);
-
     TFLITE_MINIMAL_CHECK(whisper_interpreter->AllocateTensors() == kTfLiteOk);
+    std::cout << "read whisper model: " << model_file << std::endl;
 
-    // 输入
+    // 加载音频
+    std::vector<float> pcmf32;
+    drwav wav;
+    size_t audio_dataSize=0;
+    char* audio_buffer = nullptr;
+    drwav_init_file(&wav, wav_file.c_str(), NULL);
+    std::cout << "read wav file: " << wav_file << std::endl;
+    std::cout << "wav file channels: " << wav.channels << ", sample rate: " << wav.sampleRate << ", totalPCMFrameCount: " << wav.totalPCMFrameCount << std::endl;
+    int n = wav.totalPCMFrameCount;
+    std::vector<int16_t> pcm16;
+    pcm16.resize(n*wav.channels);
+    drwav_read_pcm_frames_s16(&wav, n, pcm16.data());
+    drwav_uninit(&wav);
+    // convert to mono, float
+    pcmf32.resize(n);
+    if (wav.channels == 1) {
+        for (int i = 0; i < n; i++) {
+            pcmf32[i] = float(pcm16[i])/32768.0f;
+//            std::cout << "pcmf32[i]" << pcmf32[i] << std::endl;
+        }
+    } else {
+        for (int i = 0; i < n; i++) {
+            pcmf32[i] = float(pcm16[2*i] + pcm16[2*i + 1])/65536.0f;
+        }
+    }
+
+    //Hack if the audio file size is less than 30ms append with 0's
+    pcmf32.resize((WHISPER_SAMPLE_RATE*WHISPER_CHUNK_SIZE),0);
+    const auto processor_count = std::thread::hardware_concurrency();
+    log_mel_spectrogram(pcmf32.data(), pcmf32.size(), WHISPER_SAMPLE_RATE, WHISPER_N_FFT, WHISPER_HOP_LENGTH, WHISPER_N_MEL, processor_count,filters, mel);
+
+
+    // 模型输入
     float* input = whisper_interpreter->typed_input_tensor<float>(whisper_interpreter->inputs()[0]);
-    std::cout << 0 << std::endl;
+    memcpy(input, mel.data.data(), mel.n_mel*mel.n_len*sizeof(float));
+    // 模型计算
+    TFLITE_MINIMAL_CHECK(whisper_interpreter->Invoke() == kTfLiteOk);
+    // 模型输出
+    for(auto &i : whisper_interpreter->outputs()){
+        std::cout << i << std::endl;
+    }
+    TfLiteTensor* output_tensor = whisper_interpreter->tensor(whisper_interpreter->outputs()[0]);
+    int last_dimension = output_tensor->dims->data[output_tensor->dims->size - 1];
+    int* output_data = whisper_interpreter->typed_output_tensor<int>(0);
+    std::string text = "";
+    std::string word_add;
+    for (int i = 0; i < last_dimension; i++) {
+        //printf("%d\t",output_int[i]);
+        if(output_data[i] == g_vocab.token_eot){
+            break;
+        }
+        if((output_data[i] !=50257)&& (output_data[i] !=50362))
+            text += g_vocab.id_to_token.at(output_data[i]).c_str();
+//            text += whisper_token_to_str(output_data[i]);
+    }
+
+    std::cout << "translate result: " << text << std::endl;
 }
